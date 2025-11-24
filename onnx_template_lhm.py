@@ -842,7 +842,7 @@ class GaussianSetModule(nn.Module):
 
             mean_3d, transform_matrix = (
                 self.transform_to_posed_verts_from_neutral_pose(
-                    mean_3d  + debug_time * 0.0,
+                    mean_3d ,
                     merge_smplx_data,
                     query_points,
                     transform_mat_neutral_pose=transform_mat_neutral_pose,  # from predefined pose to zero-pose matrix
@@ -860,7 +860,7 @@ class GaussianSetModule(nn.Module):
 
 
             num_view, N, _, _ = transform_matrix.shape
-            transform_rotation = transform_matrix[..., :3, :3]  + debug_time * 0.0 # 等价但更 ONNX 友好 
+            transform_rotation = transform_matrix[..., :3, :3]  # 等价但更 ONNX 友好 
 
             q = matrix_to_quaternion_onnxsafe(transform_rotation)  # 新函数
             rigid_rotation_matrix = torch.nn.functional.normalize(q, dim=-1)
@@ -892,7 +892,7 @@ class GaussianSetModule(nn.Module):
             # scaling 限幅（若 scaling 是 (N,3)，用 (N,1)；若是 (num_view,N,3)，用 (1,N,1)）
             mask_scale = self.SMPLX_MODEL_is_constrain_body.bool().unsqueeze(-1)
 
-            scaling = scaling + debug_time * 0.0
+            scaling = scaling
             scaling = torch.where(mask_scale.to(scaling.device), torch.clamp(scaling, max=0.02).to(scaling.device), scaling)
 
 
@@ -950,7 +950,7 @@ class GaussianSetModule(nn.Module):
         debug_time = t_orig
         t = torch.tensor(0.0)
         t = debug_time
-        t = (t  / 3.0) % 1.0
+        t = (t ) % 1.0
         # t = t * 0.0
 
         T = self.smplx_betas.shape[0]  # 81
@@ -965,7 +965,7 @@ class GaussianSetModule(nn.Module):
 
 
         smplx_data = {
-            'betas': _pick_one_hot(self.smplx_betas, idx_f).unsqueeze(0) + debug_time * 0.0, 
+            'betas': _pick_one_hot(self.smplx_betas, idx_f).unsqueeze(0) , 
             'root_pose': _pick_one_hot(self.smplx_root_pose, idx_f).unsqueeze(0), 
             'body_pose': _pick_one_hot(self.smplx_body_pose, idx_f).unsqueeze(0), 
             'jaw_pose': _pick_one_hot(self.smplx_jaw_pose, idx_f).unsqueeze(0), 
@@ -991,15 +991,15 @@ class GaussianSetModule(nn.Module):
 
         # safe to create graph here
         cov3D_precomp = get_covariance(
-            gaussian_scaling  + debug_time * 0.0, 
-            gaussian_rotation  + debug_time * 0.0
+            gaussian_scaling , 
+            gaussian_rotation 
         )
         # safe to create graph here
         packed = compress_gauhuman_gaussians_torch(
-            positions=gaussian_xyz + debug_time * 0.0,
-            cov3D_precomp=cov3D_precomp + debug_time * 0.0 , 
-            opacity=gaussian_opacity  + debug_time * 0.0,
-            shs=gaussian_rgb  + debug_time * 0.0#.flatten(-2, -1) 
+            positions=gaussian_xyz,
+            cov3D_precomp=cov3D_precomp  , 
+            opacity=gaussian_opacity ,
+            shs=gaussian_rgb
         )
 
         gaussian_f16 = packed["gaussian_f16"]  # (N,10)  f16
