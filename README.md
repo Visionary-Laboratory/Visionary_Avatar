@@ -1,8 +1,5 @@
 ## **Animatable Avatar ONNX Model within the Visionary Project**
 
-This guide outlines the steps to set up the environment, acquire necessary assets, and generate your first 3D avatar model.
-
------
 
 ### **1. Environment Configuration**
 
