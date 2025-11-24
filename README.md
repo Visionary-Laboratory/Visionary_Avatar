@@ -69,6 +69,9 @@ To animate the avatar, you must acquire the SMPL-X motion sequences from the AMA
 1.  **Register/Login:** Visit the [AMASS website](https://amass.is.tue.mpg.de) and log in.
 2.  **Navigate to Downloads:** Go to the [Download page](https://amass.is.tue.mpg.de/download.php).
 3.  **Select Dataset:** Locate the **CMU** dataset.
+    <td align="center">
+    <img src="assets/AMASS_CMU.png"/>
+    </td>
 4.  **Download:** Click on `SMPL-X N` to download the zip file.
 5.  **Extract:** Unzip the contents into the `./motions` directory.
 
