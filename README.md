@@ -77,7 +77,7 @@ To animate the avatar, you must acquire the SMPL-X motion sequences from the AMA
 
 -----
 
-### **4. Quick Start: Generating the Avatar**
+### **4. Generating the ONNX Avatar Model**
 
 Once the environment and data are ready, you can generate the ONNX avatar model.
 
