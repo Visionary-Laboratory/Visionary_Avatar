@@ -1,4 +1,4 @@
-### **Getting Started with Animatable Avatar of the Visionary Project**
+## **Getting Started with Animatable Avatar of the Visionary Project**
 
 This guide outlines the steps to set up the environment, acquire necessary assets, and generate your first 3D avatar model.
 
