@@ -41,8 +41,6 @@ for img_path in "$REF_IMG_DIR"/*; do
       --output "$OUT_Root/onnx/$MOTION_NAME/$name.onnx"
 
     echo "Finished processing: $name"
-
-    exit
     
 done
 
