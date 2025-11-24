@@ -1,4 +1,4 @@
-## **Getting Started with Animatable Avatar of the Visionary Project**
+## **Animatable Avatar ONNX Model within the Visionary Project**
 
 This guide outlines the steps to set up the environment, acquire necessary assets, and generate your first 3D avatar model.
 
@@ -8,14 +8,15 @@ This guide outlines the steps to set up the environment, acquire necessary asset
 
 To begin, you must create a specific Conda environment and install the required dependencies. This setup utilizes Python 3.10.
 
-**Step A: Create and Activate Environment**
+**Create and Activate Environment**
 
 ```bash
 conda create -n visionary_avatar python==3.10 -y
 conda activate visionary_avatar
 ```
 
-**Step B: Install Core Frameworks**
+**Install Core Frameworks**
+
 Install PyTorch, torchvision, and xformers with CUDA support.
 
 ```bash
@@ -24,7 +25,8 @@ pip install -U xformers==0.0.28.post3 --index-url https://download.pytorch.org/w
 pip install ninja psutil tb-nightly
 ```
 
-**Step C: Install Custom Dependencies**
+**Install Custom Dependencies**
+
 The following packages are installed directly from their repositories.
 
 > **Troubleshooting Tip:** If you encounter a `ModuleNotFoundError: No module named 'torch'` error during the installation of **PyTorch3D** or **Gaussian Rasterization**, append the flag `--no-build-isolation` to the command.
