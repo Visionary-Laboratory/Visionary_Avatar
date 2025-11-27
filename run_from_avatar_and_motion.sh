@@ -1,7 +1,7 @@
 #!/bin/bash
 
-AVATAR_PATH=
-MOTION_PATH=
+AVATAR_PATH=demo/avatar.pth
+MOTION_PATH=demo/motion
 OUT_ONNX_PATH=out/out.onnx
 
 python onnx_template_lhm.py \
