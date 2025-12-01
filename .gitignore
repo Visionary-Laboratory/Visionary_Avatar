@@ -7,3 +7,8 @@ iteration_100000/
 pretrained_weights/*
 
 *.pyc
+data/
+
+
+pretrained_models/
+*.pyc

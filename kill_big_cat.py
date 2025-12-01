@@ -41,5 +41,5 @@ if __name__ == '__main__':
 
 
     m = onnx.load(args.input)
-    m = split_wide_concats(m, fanin=4)
+    m = split_wide_concats(m, fanin=7)
     onnx.save(m, args.output)

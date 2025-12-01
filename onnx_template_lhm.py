@@ -25,6 +25,38 @@ from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal, getProjec
 # from utils.mlp_delta_weight_lbs import LBSOffsetDecoder
 from utils.smpl_x_voxel_dense_sampling import SMPLXVoxelMeshModel, batch_rigid_transform
 
+import onnx
+from onnx import shape_inference, checker
+
+def rename_value_everywhere(model, old, new):
+    # graph io/value_info
+    for vi in list(model.graph.input) + list(model.graph.output) + list(model.graph.value_info):
+        if vi.name == old:
+            vi.name = new
+
+    # initializers
+    for init in model.graph.initializer:
+        if init.name == old:
+            init.name = new
+
+    # all node inputs/outputs
+    for node in model.graph.node:
+        node.input[:]  = [new if x == old else x for x in node.input]
+        node.output[:] = [new if x == old else x for x in node.output]
+
+def fix_output_name(path, out_index=1, desired_name="color_rgb"):
+    m = onnx.load(path)
+
+    old = m.graph.output[out_index].name
+    if old != desired_name:
+        rename_value_everywhere(m, old, desired_name)
+
+    # 再做一次 shape 推断 + 合法性检查
+    m = shape_inference.infer_shapes(m)
+    checker.check_model(m)
+
+    onnx.save(m, path)
+    print(f"✅ renamed output[{out_index}] {old} -> {desired_name}")
 
 
 MAX_N = 500_000  # 最大点数
@@ -353,7 +385,7 @@ def prepare_color_buffers(colors: torch.Tensor):
     #     return sh48, None, 'sh', 48
 
     if K == 3 or K == 4:
-        rgb = colors[:, :3].to(torch.float16).contiguous()
+        rgb = colors.to(torch.float16).contiguous()
         return rgb
 
     # 其他情况按“分通道再交错”的约定打成 48
@@ -440,6 +472,29 @@ def compress_gauhuman_gaussians_torch(
 
     return {"gaussian_f16": gaussian_f16, "sh_f16": sh_f16}
 
+
+def pick_with_gather(table: torch.Tensor, idx_scalar: torch.Tensor):
+    """
+    table: (T, ...)
+    idx_scalar: () float32, [0, T-1]
+    返回: table[idx]
+    """
+    T = table.shape[0]
+
+    # float -> 合法整数下标，仍然是张量路径
+    idx = torch.floor(idx_scalar)
+    idx = torch.clamp(idx, 0, T - 1)
+
+    # 关键：强制成 int32，避免 int64 索引路径
+    idx = idx.to(torch.int32)   # 或 torch.int64，看你后端支持哪个
+
+    # index_select 的 index 必须是一维
+    idx_1d = idx.view(1)        # shape: (1,)
+
+    # 这一步在 ONNX 里一般导出成 Gather
+    picked = torch.index_select(table, dim=0, index=idx_1d)  # (1, ...)
+
+    return picked[0]   # 去掉前面的 batch 维
 
 
 def get_zero_pose_human(
@@ -553,6 +608,17 @@ class GaussianSetModule(nn.Module):
             SMPLX_MODEL, self.smplx_betas[:2], 'cuda'
         )
         self.register_buffer("joint_null_pose", joint_null_pose.cuda())
+        t_orig = torch.zeros((1, 1)).float().cuda()
+        gaussian_canon_dxdydz = self.dxdydz.to(t_orig.device)
+        query_points = self.positions.to(t_orig.device)
+        self.colors = self.colors.to(t_orig.device).to(torch.float16)
+        self.colors    = F.pad(self.colors, (0, 1), value=0).contiguous()  # 在最后一维右侧补 1 个元素
+
+        self.register_buffer("colors_4",  self.colors)
+        gaussian_canon_opacity = self.opacities.to(t_orig.device)
+        gaussian_canon_scaling = self.scales.to(t_orig.device)
+        gaussian_canon_rotation = self.rotations.to(t_orig.device)
+        transform_mat_neutral_pose = self.transform_mat_neutral_pose.to(t_orig.device)
 
     def _pick_by_t_1d(self, table: torch.Tensor, t: torch.Tensor, keepdim: bool) -> torch.Tensor:
         """
@@ -927,6 +993,8 @@ class GaussianSetModule(nn.Module):
 
 
 
+
+        # esti_shape = self.esti_shape
         gaussian_canon_dxdydz = self.dxdydz.to(t_orig.device)
         query_points = self.positions.to(t_orig.device)
         gaussian_canon_rgb = self.colors.to(t_orig.device)
@@ -934,8 +1002,6 @@ class GaussianSetModule(nn.Module):
         gaussian_canon_scaling = self.scales.to(t_orig.device)
         gaussian_canon_rotation = self.rotations.to(t_orig.device)
         transform_mat_neutral_pose = self.transform_mat_neutral_pose.to(t_orig.device)
-        # esti_shape = self.esti_shape
-
 
 
 
@@ -965,16 +1031,16 @@ class GaussianSetModule(nn.Module):
 
 
         smplx_data = {
-            'betas': _pick_one_hot(self.smplx_betas, idx_f).unsqueeze(0) , 
-            'root_pose': _pick_one_hot(self.smplx_root_pose, idx_f).unsqueeze(0), 
-            'body_pose': _pick_one_hot(self.smplx_body_pose, idx_f).unsqueeze(0), 
-            'jaw_pose': _pick_one_hot(self.smplx_jaw_pose, idx_f).unsqueeze(0), 
-            'leye_pose': _pick_one_hot(self.smplx_leye_pose, idx_f).unsqueeze(0), 
-            'reye_pose': _pick_one_hot(self.smplx_reye_pose, idx_f).unsqueeze(0), 
-            'lhand_pose': _pick_one_hot(self.smplx_lhand_pose, idx_f).unsqueeze(0), 
-            'rhand_pose': _pick_one_hot(self.smplx_rhand_pose, idx_f).unsqueeze(0), 
-            'trans': _pick_one_hot(self.smplx_trans, idx_f).unsqueeze(0), 
-            'expr': _pick_one_hot(self.smplx_expr, idx_f).unsqueeze(0), 
+            'betas': pick_with_gather(self.smplx_betas, idx_f).unsqueeze(0) , 
+            'root_pose': pick_with_gather(self.smplx_root_pose, idx_f).unsqueeze(0), 
+            'body_pose': pick_with_gather(self.smplx_body_pose, idx_f).unsqueeze(0), 
+            'jaw_pose': pick_with_gather(self.smplx_jaw_pose, idx_f).unsqueeze(0), 
+            'leye_pose': pick_with_gather(self.smplx_leye_pose, idx_f).unsqueeze(0), 
+            'reye_pose': pick_with_gather(self.smplx_reye_pose, idx_f).unsqueeze(0), 
+            'lhand_pose': pick_with_gather(self.smplx_lhand_pose, idx_f).unsqueeze(0), 
+            'rhand_pose': pick_with_gather(self.smplx_rhand_pose, idx_f).unsqueeze(0), 
+            'trans': pick_with_gather(self.smplx_trans, idx_f).unsqueeze(0), 
+            'expr': pick_with_gather(self.smplx_expr, idx_f).unsqueeze(0), 
             'transform_mat_neutral_pose': transform_mat_neutral_pose, 
         }
 
@@ -982,7 +1048,7 @@ class GaussianSetModule(nn.Module):
         gaussian_xyz, canonical_xyz, gaussian_rgb, \
             gaussian_opacity, gaussian_rotation, canonical_rotation, \
                 gaussian_scaling, transform_matrix = self.animate_gs_model(
-                    gaussian_canon_dxdydz, gaussian_canon_rgb, gaussian_canon_opacity, 
+                    gaussian_canon_dxdydz, gaussian_canon_rgb , gaussian_canon_opacity, 
                     gaussian_canon_scaling, gaussian_canon_rotation, 
                     query_points, smplx_data
                 )
@@ -999,28 +1065,28 @@ class GaussianSetModule(nn.Module):
             positions=gaussian_xyz,
             cov3D_precomp=cov3D_precomp  , 
             opacity=gaussian_opacity ,
-            shs=gaussian_rgb
+            shs=gaussian_rgb# + t_orig * 0.0
         )
 
         gaussian_f16 = packed["gaussian_f16"]  # (N,10)  f16
-        sh_f16       = packed["sh_f16"]        # (N,48)  f16
+        # sh_f16       = packed["sh_f16"]        # (N,48)  f16
 
-        z_g = (gaussian_f16[:1, :1] - gaussian_f16[:1, :1]).reshape(())  # scalar 0, dtype跟随下行
-        z_g = z_g.to(gaussian_f16.dtype)
+        # z_g = (gaussian_f16[:1, :1] - gaussian_f16[:1, :1]).reshape(())  # scalar 0, dtype跟随下行
+        # z_g = z_g.to(gaussian_f16.dtype)
 
-        z_s = (sh_f16[:1, :1] - sh_f16[:1, :1]).reshape(())
-        z_s = z_s.to(sh_f16.dtype)
+        # z_s = (sh_f16[:1, :1] - sh_f16[:1, :1]).reshape(())
+        # z_s = z_s.to(sh_f16.dtype)
 
-        gauss_tail = z_g.expand(MAX_N, gaussian_f16.shape[1])  # (MAX_N,10)
-        sh_tail    = z_s.expand(MAX_N, sh_f16.shape[1])        # (MAX_N,48)
+        # gauss_tail = z_g.expand(MAX_N, gaussian_f16.shape[1])  # (MAX_N,10)
+        # sh_tail    = z_s.expand(MAX_N, sh_f16.shape[1])        # (MAX_N,48)
 
-        gauss_fixed = torch.cat([gaussian_f16, gauss_tail], dim=0)[:MAX_N, :]
-        sh_fixed    = torch.cat([sh_f16,       sh_tail],    dim=0)[:MAX_N, :]
-        sh_fixed    = F.pad(sh_fixed, (0, 1), value=0)  # 在最后一维右侧补 1 个元素
-        print(sh_fixed.shape)
+        # gauss_fixed = torch.cat([gaussian_f16, gauss_tail], dim=0)[:MAX_N, :]
+        # sh_fixed    = torch.cat([sh_f16,       sh_tail],    dim=0)[:MAX_N, :]
+        # sh_fixed    = F.pad(sh_f16, (0, 1), value=0)  # 在最后一维右侧补 1 个元素
+        
+        # print(sh_f16.shape)
         num_points = torch.tensor([gaussian_f16.shape[0]], dtype=torch.int32)
-        return (gauss_fixed, sh_fixed, num_points)
-
+        return (gaussian_f16, self.colors_4, num_points)
 
 
 
@@ -1461,7 +1527,7 @@ def visualize(t, gaussian_xyz, canonical_xyz, gaussian_rgb, gaussian_opacity, ga
     rendered_image, radii, depth, alpha = rasterizer(
         # means3D = canonical_xyz, 
         means3D = gaussian_xyz, 
-        means2D = torch.zeros_like(canonical_xyz, dtype=canonical_xyz.dtype, requires_grad=False, device="cuda") + 0, 
+        means2D = torch.zeros_like(canonical_xyz, dtype=canonical_xyz.dtype, requires_grad=False, device="cuda"), 
         shs = None, 
         colors_precomp = gaussian_rgb, 
         opacities = gaussian_opacity, 
@@ -1567,8 +1633,8 @@ def export_onnx(pth_path: Path, out_path: Path, motion_json, opset: int = 17):
     #     model(t/80)
 
     # assert False
-
-    os.makedirs(os.path.dirname(str(out_path)), exist_ok=True)
+    if os.path.dirname(str(out_path))!='':
+        os.makedirs(os.path.dirname(str(out_path)), exist_ok=True)
 
     torch.onnx.export(
         model,
@@ -1624,7 +1690,7 @@ def main():
 
     export_onnx(pth_path, out_path, motion_json, opset=args.opset)
 
-
+    fix_output_name(str(out_path), out_index=1, desired_name="color_rgb")
 
     # assert False
 
@@ -1634,6 +1700,14 @@ def main():
     from onnx import shape_inference
 
     m = onnx.load(out_path)
+    # for i, output in enumerate(m.graph.output):
+    #         if i == 1:  # 找到第二个输出
+    #             print(f"⚠️ 检测到名称丢失，正在修复: {output.name} -> color_rgb")
+    #             output.name = "color_rgb"
+
+
+    
+
     m = shape_inference.infer_shapes(m)
 
     
@@ -1641,17 +1715,38 @@ def main():
 
     dump_ios(m, "After  infer_shapes")
 
+
+    produced = set()
+    for n in m.graph.node:
+        produced |= set(n.output)
+    produced |= {i.name for i in m.graph.initializer}
+    produced |= {i.name for i in m.graph.input}
+
+    print("Graph outputs:", [o.name for o in m.graph.output])
+    print("Missing outputs:", [o.name for o in m.graph.output if o.name not in produced])
+
+
     # 4) 简单断言（按你的预期改，比如最后一维=10）
     #    如果仍然是符号维（字符串），这里会跳过断言
     for o in m.graph.output:
         shp = vi_shape(o)
         print(shp)
-        if shp and isinstance(shp[-1], int):
-            global MAX_N
-            MAX_N = shp[0] 
-            print(MAX_N)
-            break
+        # if shp and isinstance(shp[-1], int):
+        #     global MAX_N
+        #     MAX_N = shp[0] 
+        #     print(MAX_N)
+        #     break
             #assert shp[-1] in (9, 10,48,1), f"{o.name} last dim {shp[-1]} not 9/10"
+
+    # import onnxruntime as ort
+
+    # so = ort.SessionOptions()
+    # so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    # so.optimized_model_filepath = str(out_path)
+    # # so.enableGraphCapture = True
+    # # 用 CPU provider 也能生成优化图（重点是保存 optimized_model_filepath）
+    # ort.InferenceSession(str(out_path), so, enableGraphCapture = True,providers=["CPUExecutionProvider"])
+    # print("saved -> model.opt.onnx")
 
     # export_onnx(ply_path, out_path, opset=args.opset)
 
