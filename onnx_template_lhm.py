@@ -1055,10 +1055,12 @@ class GaussianSetModule(nn.Module):
 
 
         print(gaussian_xyz.shape)
-        center = gaussian_xyz.mean(dim=0, keepdim=True)          # shape: [1, 3]
+        bbox_min = gaussian_xyz.amin(dim=0, keepdim=True)   # [1,3]
+        bbox_max = gaussian_xyz.amax(dim=0, keepdim=True)   # [1,3]
+        center = (bbox_min + bbox_max) * 0.5                # [1,3]
 
-        center = center.numpy()
-
+        # 继续沿用你原来的 numpy 往返
+        center = center.detach().cpu().numpy()              # 注意：cuda 上必须先 cpu()
         center = torch.from_numpy(center).to(gaussian_xyz.device).to(gaussian_xyz.dtype)
 
         gaussian_xyz = gaussian_xyz - center
