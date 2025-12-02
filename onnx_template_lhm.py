@@ -1054,6 +1054,14 @@ class GaussianSetModule(nn.Module):
                 )
 
 
+        print(gaussian_xyz.shape)
+        center = gaussian_xyz.mean(dim=0, keepdim=True)          # shape: [1, 3]
+
+        center = center.numpy()
+
+        center = torch.from_numpy(center).to(gaussian_xyz.device).to(gaussian_xyz.dtype)
+
+        gaussian_xyz = gaussian_xyz - center
 
         # safe to create graph here
         cov3D_precomp = get_covariance(
